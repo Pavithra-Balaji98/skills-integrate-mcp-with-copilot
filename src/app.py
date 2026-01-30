@@ -8,16 +8,39 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
+import json
+from pydantic import BaseModel
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount the static files directory
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# Load teachers credentials
+def load_teachers():
+    teachers_file = Path(__file__).parent / "teachers.json"
+    with open(teachers_file, "r") as f:
+        return json.load(f)
+
+# Pydantic model for login request
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 # In-memory activity database
 activities = {
@@ -111,8 +134,8 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
-    """Unregister a student from an activity"""
+def unregister_from_activity(activity_name: str, email: str, is_admin: bool = False):
+    """Unregister a student from an activity (admin only)"""
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -130,3 +153,17 @@ def unregister_from_activity(activity_name: str, email: str):
     # Remove student
     activity["participants"].remove(email)
     return {"message": f"Unregistered {email} from {activity_name}"}
+
+
+@app.post("/login")
+def login(request: LoginRequest):
+    """Authenticate a teacher"""
+    teachers_data = load_teachers()
+    
+    # Check if credentials match any teacher
+    for teacher in teachers_data["teachers"]:
+        if teacher["username"] == request.username and teacher["password"] == request.password:
+            return {"success": True, "message": "Login successful", "username": request.username}
+    
+    # Invalid credentials
+    raise HTTPException(status_code=401, detail="Invalid username or password")
